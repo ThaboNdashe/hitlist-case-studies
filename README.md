@@ -1,108 +1,42 @@
-﻿# Hitlist Engineering Architecture & Problem-Solving Showcase
+﻿# How I Solve Engineering Problems — Case Studies from Building Hitlist
 
-> **Full-Stack & Systems Engineer** | `Java 21/25 LTS` · `Spring Boot 3` · `PostgreSQL 16 + PostGIS` · `Redis` · `React 18` · `TanStack Table v8` · `OpenTelemetry` · `Grafana LGTM` · `Linux systemd`
+Hi, I'm Thabo. I built **Hitlist**—a full-stack Java/Spring Boot and React app that finds local businesses without websites (like plumbers, clinics, and contractors) so agencies can reach out and pitch them digital services.
 
-Welcome to the architectural showcase and engineering problem-solving repository for **SME Hitlist**—an automated B2B lead discovery, multi-campaign geographic permutation, outreach intelligence, and fulfillment platform.
+Instead of just dropping a link to a large codebase, I put this repo together to share **five real engineering problems** I ran into while building and running Hitlist—what broke, why my first idea didn't work, how I tracked down the root cause, and how I fixed it.
 
-This repository is structured for two distinct readers:
-1. **Talent Recruiters (60-Second Executive Scan):** Start with the **[Live System Telemetry](#1-live-engineering-telemetry-auto-synced)**, **[Quantified Impact Matrix](#2-problem-solving--impact-matrix-hiring-manager-navigator)**, and the 1-page **[Executive Brief](docs/EXECUTIVE_BRIEF.md)**.
-2. **Engineering Hiring Managers & Staff Engineers (5–15 Minute Technical Deep-Dive):** Explore the **[5 Production Case Studies](#2-problem-solving--impact-matrix-hiring-manager-navigator)** (*Context $\rightarrow$ Why Naive Approaches Failed $\rightarrow$ Root-Cause Diagnosis $\rightarrow$ Architectural Solution $\rightarrow$ Trade-offs*), review **[Kruchten's 4+1 Architecture](docs/SYSTEM_ARCHITECTURE.md)** and **[Full ADR Catalog](docs/adr/FULL_ADR_CATALOG.md)**, or execute the **[Zero-Setup Runnable Code Proofs (`mvn test`)](#4-runnable-code-proofs-zero-setup-maven-verification)** in under 3 seconds.
+**Tech Stack:** `Java 21/25` · `Spring Boot 3` · `PostgreSQL 16` · `Redis` · `React 18` · `TanStack Table v8` · `OpenTelemetry & Grafana (Loki/Tempo)` · `Linux systemd`
 
 ---
 
-## 1. Live Engineering Telemetry (Auto-Synced)
+## 1. Five Real Problems I Solved
 
-<!-- AUTO-SYNC:METRICS:START -->
-| Metric / Artifact | Live Value | Source Verification |
-| :--- | :--- | :--- |
-| **Last Synced Main-Repo Commit** | `3a2129f` (`test` · `2026-09-01 04:09:39 +0300`) | Auto-synced via `.githooks/post-commit` & `sync-showcase-repo.ps1` |
-| **Production ADRs & Post-Mortems** | `8` | Consolidated in [`docs/adr/FULL_ADR_CATALOG.md`](docs/adr/FULL_ADR_CATALOG.md) |
-| **Backend Production Java Classes** | `118` | Modular Spring Boot 3 domain packages (`auth`, `leads`, `outreach`, `fulfillment`, `integrations`) |
-| **Zero-Bytecode Test & Fake Classes** | `33` | Pure Java `ConcurrentHashMap` JPA Fakes + Testcontainers PostgreSQL 16 |
-| **Frontend React Components & Views** | `28` | React 18 + Headless TanStack Table v8 |
-| **Core SRS Functional Modules** | `7` | Mirrored in [`docs/SYSTEM_DESIGN_BASELINE.md`](docs/SYSTEM_DESIGN_BASELINE.md) |
-<!-- AUTO-SYNC:METRICS:END -->
+| # | Story | What Went Wrong | How I Fixed It |
+| :-: | :--- | :--- | :--- |
+| **01** | **[Keeping Google API Costs at $0](case-studies/01-keeping-google-api-costs-at-zero.md)** | Google capped free Places API calls at 1,000/month. On top of that, our early budget-pause logic accidentally created an infinite 15-minute retry loop that burned search quota while saving zero leads. | Built a pre-flight micro-dollar ledger in Postgres, capped runs to 1 call/hour (720/month), held onto `nextPageToken` to exhaust all pages before rotating (`iteration % total`), and switched to soft budget caps. |
+| **02** | **[Dropping Mockito When Java 25 Broke Our Tests](case-studies/02-dropping-mockito-for-java-25.md)** | Upgrading to OpenJDK 25 LTS crashed every unit test with `Java 25 (69) is not supported by Byte Buddy` and threw `sun.misc.Unsafe` warnings. | Removed Mockito and Byte Buddy completely. Built a 70-line in-memory `ConcurrentHashMap` `JpaRepository` fake for fast unit tests (<50ms) and used Testcontainers Postgres for real database tests. |
+| **03** | **[Debugging a Silent 0-Lead API Failure](case-studies/03-debugging-a-silent-api-failure.md)** | After migrating to Google's new `POST /v1/places:searchText` API, the pipeline finished in 200ms saying `0 leads generated, 0 errors`. | Tracked down 3 stacked bugs: Spring's `UriComponentsBuilder` turned `:searchText` into `/:searchText` (HTTP 404), a catch block swallowed the 404, and Jackson crashed on undocumented fields in Google's JSON. |
+| **04** | **[Fixing React Table Flicker & Jumping Layouts](case-studies/04-fixing-react-table-flicker.md)** | Filtering or changing pages on the Leads and Outreach tables caused a harsh strobe effect and made the page footer jump up and down—even with TanStack Table v8. | Found that `<50ms` local API responses were flipping table opacity `1.0 -> 0.5 -> 1.0` like a camera flash. Built a shared `<DataTable />` with a subtle 2px top loading bar, steady row opacity, and fixed min-height. |
+| **05** | **[Bare-Metal Deploys & Fixing Grafana Tracing](case-studies/05-bare-metal-logging-and-deploys.md)** | OpenTelemetry traces were failing with `Connection reset by peer`, Loki was rejecting logs with `HTTP 400`, and GitHub Actions SCP wildcards were dropping frontend files. | Configured OTel to use `grpc` on Tempo's custom port `4319`, disabled structured metadata for Loki v11 in `logback-spring.xml`, switched deploys to atomic `rsync`, and sandboxed the app in `systemd`. |
 
 ---
 
-## 2. Problem-Solving & Impact Matrix (Hiring Manager Navigator)
-
-Every case study below documents a real production bottleneck or failure encountered while building and operating Hitlist, how naive fixes failed, the root-cause forensic investigation, and the resulting architectural design.
-
-| # | Engineering Pillar & Case Study | Core Problem Solved | Architectural Solution | Quantified Outcome |
-| :-: | :--- | :--- | :--- | :--- |
-| **01** | **[FinOps API Cost Guardrails & Permutation Engine](docs/case-studies/01-finops-api-cost-guardrails-and-permutation.md)** | Google Places Enterprise SKU capped free usage at **1,000 events/month**, while per-run hard budget pauses (`paused=true`) triggered an infinite 15-minute auto-resume loop that wasted quota and produced 0 leads. | Engineered a pre-flight micro-dollar (`$10^{-6}`) ledger (`GoogleApiQuotaService`) with `OVER_QUERY_LIMIT` billing circuit-breakers, `02:00 Europe/Istanbul` auto-resume, **Deep Pagination Exhaustion** (`nextPageToken`), **Stateless Modulo Permutations** (`iteration % N`), and **Soft-Cap Graceful Degradation**. | **100% Free-Tier Compliance** (720/1,000 monthly calls), **0 infinite loops**, and deterministic rotation across arbitrary Country $\times$ City $\times$ Category matrices. |
-| **02** | **[Zero-Bytecode Java 25 LTS Testing Architecture](docs/case-studies/02-zero-bytecode-java25-testing-architecture.md)** | Upgrading to OpenJDK 25 LTS (classfile v69) broke unit tests with `IllegalArgumentException: Java 25 (69) is not supported by Byte Buddy` and emitted terminal `sun.misc.Unsafe` dynamic agent warnings from Mockito. | Eradicated `mockito-core` and `byte-buddy` completely. Architected a generic, thread-safe `InMemoryJpaRepository<T, ID>` and `InMemorySpecificationExecutorRepository<T, ID>` fake hierarchy for unit tests, paired with **Testcontainers PostgreSQL 16** (`@ServiceConnection`) for integration tests. | **Sub-50ms** in-memory unit test execution, **0 bytecode/Unsafe warnings** on JDK 21–25+, and 100% real PostgreSQL dialect fidelity. |
-| **03** | **[Post-Mortem: Google Places v1 Silent Failure](docs/case-studies/03-google-places-v1-silent-failure-postmortem.md)** | Legacy Places API biased results toward businesses *with* websites, starving the 0-website SME pipeline. After migrating to `POST /v1/places:searchText`, runs silently completed with `0 candidates, 0 errors`. | Conducted a 3-layer forensic investigation: (1) Fixed `UriComponentsBuilder` mutating `:searchText` into `/:searchText` (HTTP 404), (2) eliminated swallowed exception blocks, (3) enforced `@JsonIgnoreProperties(ignoreUnknown = true)` & `X-Goog-FieldMask` headers behind an **Anti-Corruption DTO Mapper**. | Restored **0-website SME discovery**, isolated API migration blast radius to `integrations/google` (**0 changes** to core pipeline service), and eliminated schema-drift crashes. |
-| **04** | **[Frontend UX: Eliminating Table Strobing & Layout Shift](docs/case-studies/04-frontend-ux-table-strobing-and-stability.md)** | Filtering or paginating on Leads and Outreach pages caused jarring visual "strobing" and violent page height collapse, even after migrating to TanStack Table v8. | Diagnosed sub-50ms local API responses flipping `opacity: 1.0 -> 0.5 -> 1.0`. Engineered a reusable headless `<DataTable />` wrapper with a 2px top indeterminate pulse bar, `1.0` row opacity with `pointerEvents` gating, and `minHeight: 400px` geometry stabilization. | **Zero visual flicker**, **zero cumulative layout shift (CLS)** across empty/filtered states, and unified table markup across all domain modules. |
-| **05** | **[Bare-Metal LGTM Observability & CI/CD Hardening](docs/case-studies/05-bare-metal-lgtm-observability-and-cicd.md)** | Production telemetry suffered `Connection reset by peer` on Grafana Tempo and `HTTP 400` rejections on Loki v11, while GitHub Actions SCP wildcards silently dropped build artifacts. | Mapped Tempo OTLP gRPC to port `4319` with `OTEL_EXPORTER_OTLP_PROTOCOL=grpc`, disabled Loki v11 structured metadata at the `<appender>` root, replaced SCP wildcards with atomic temp staging + `rsync`, and hardened `systemd` (`NoNewPrivileges`, `ProtectSystem=full`). | Full distributed tracing & log correlation across Nginx $\rightarrow$ Spring Boot $\rightarrow$ PostgreSQL, deterministic CI/CD rollouts, and sandboxed Linux runtime privileges. |
-
----
-
-## 3. End-to-End System Topology
+## 2. How the System Fits Together
 
 ```mermaid
-flowchart TB
-    subgraph ClientLayer["React 18 Frontend (SPA)"]
-        UI["Leads, Outreach & Fulfillment Views"]
-        DT["Headless <DataTable /> (TanStack v8)\nZero-Strobe 2px Pulse Bar + Stable Geometry"]
-        UI --> DT
-    end
-
-    subgraph EdgeLayer["Bare-Metal Linux Edge"]
-        NGINX["Nginx Reverse Proxy\nTLS 1.3 · Rate Limiting · Gzip"]
-    end
-
-    subgraph AppLayer["Spring Boot 3 Backend (Java 21/25 LTS · systemd Sandboxed)"]
-        AUTH["Auth & Security Module\nJWT + Refresh Blocklist"]
-        CRON["CronJobService & Round-Robin Job\nStateless Modulo Permutation + Deep Exhaustion"]
-        QUOTA["GoogleApiQuotaService\nMicro-Dollar Ledger & Circuit Breaker"]
-        PIPE["LeadGenerationPipelineService\nSoft-Cap Degradation & Async Saver"]
-        GOOGLE["GooglePlacesHttpClient\nPOST /v1/places:searchText + X-Goog-FieldMask"]
-        CLAUDE["Anthropic Claude Integration\nLead Scoring & Pitch Enrichment"]
-        OUTREACH["Outreach & Fulfillment Modules\nState Machine & Delivery Notes"]
-    end
-
-    subgraph DataLayer["Persistence & State"]
-        PG[("PostgreSQL 16 + PostGIS\nleads · daily_usage · automation_state")]
-        REDIS[("Redis 7\nCache & Distributed Locks")]
-    end
-
-    subgraph ObsLayer["Grafana LGTM Observability Stack"]
-        OTEL["OpenTelemetry Java Agent\n(OTLP gRPC :4319)"]
-        TEMPO["Grafana Tempo (Traces)"]
-        LOKI["Grafana Loki v11 (Logs via Loki4j)"]
-        PROM["Prometheus (Actuator Metrics)"]
-    end
-
-    DT <-->|"HTTPS / JSON"| NGINX
-    NGINX <--> AUTH
-    NGINX <--> CRON
-    NGINX <--> OUTREACH
-    CRON -->|"1. Pre-Flight Check"| QUOTA
-    QUOTA <-->|"2. Reserve Micros / Lock"| PG
-    CRON -->|"3. Execute 1 Call/Hr"| GOOGLE
-    CRON -->|"4. @Async Persist"| PIPE
-    PIPE --> CLAUDE
-    PIPE --> PG
-    OUTREACH --> PG
-    AUTH --> REDIS
-    AppLayer -.->|"Traces"| OTEL --> TEMPO
-    AppLayer -.->|"Structured Logs"| LOKI
-    AppLayer -.->|"Micrometer"| PROM
+flowchart LR
+    UI["React 18 UI\n(<DataTable />)"] <-->|"HTTPS"| NGINX["Nginx Reverse Proxy"]
+    NGINX <--> API["Spring Boot 3 API\n(Java 21/25 · systemd)"]
+    API -->|"1. Check & Reserve Quota"| PG[("PostgreSQL 16\nLeads & Quota Ledger")]
+    API -->|"2. 1 Call/Hr + nextPageToken"| GOOGLE["Google Places API v1"]
+    API -->|"3. Pitch Enrichment"| CLAUDE["Claude API"]
+    API -.->|"Logs (Loki4j) & Traces (gRPC :4319)"| LGTM["Grafana Loki & Tempo"]
 ```
 
 ---
 
-## 4. Runnable Code Proofs (Zero-Setup Maven Verification)
+## 3. Run the Code Yourself (Takes 3 Seconds)
 
-Hiring managers and technical interviewers do not need Docker, PostgreSQL, or API keys to verify the core engineering patterns in this repository. The [`code-proofs/`](code-proofs/) directory contains a standalone, zero-dependency **Java 21+ Maven module** demonstrating:
-
-1. **Pre-Flight Micro-Dollar Quota Guardrails & Billing Lockdown Circuit Breaker** ([`ApiQuotaGuardrailService.java`](code-proofs/src/main/java/com/portfolio/hitlist/quota/ApiQuotaGuardrailService.java))
-2. **Deep Pagination Exhaustion + Stateless Modulo Permutation Engine** ([`CampaignPermutationEngine.java`](code-proofs/src/main/java/com/portfolio/hitlist/permutation/CampaignPermutationEngine.java))
-3. **Zero-Bytecode Generic In-Memory Repository Fake Framework** ([`InMemoryRepository.java`](code-proofs/src/test/java/com/portfolio/hitlist/fakes/InMemoryRepository.java))
-
-### Run the Verification Suite Locally (< 3 Seconds)
+If you want to see how I write code and tests without spinning up Docker, Postgres, or API keys, check out the [`code-proofs/`](code-proofs/) folder. It's a small, self-contained Maven project that runs the **Quota Guardrail Ledger**, **Campaign Permutation Engine**, and **Zero-Bytecode In-Memory Repository Fakes**.
 
 ```bash
 cd code-proofs
@@ -111,27 +45,32 @@ mvn clean test
 
 ---
 
-## 5. Repository Navigation & Auto-Synced Documentation Catalog
+## 4. Live Repo Stats & Architecture Decisions (Auto-Synced)
 
-### Curated Executive & Architecture Docs
-* **[`docs/EXECUTIVE_BRIEF.md`](docs/EXECUTIVE_BRIEF.md)** — 1-Page Recruiter & Hiring Manager Pitch Sheet (Core Competencies, Quantified Impact, Role Fit).
-* **[`docs/SYSTEM_ARCHITECTURE.md`](docs/SYSTEM_ARCHITECTURE.md)** — Kruchten's 4+1 View Model (Logical CBSE Contracts, Process Concurrency, Development Structure, Physical Bare-Metal Topology, +1 Scenarios).
-* **[`docs/adr/FULL_ADR_CATALOG.md`](docs/adr/FULL_ADR_CATALOG.md)** — Complete, searchable compendium of all Architecture Decision Records and Post-Mortems automatically synchronized from the main `hitlist` repository.
-* **[`docs/SYSTEM_DESIGN_BASELINE.md`](docs/SYSTEM_DESIGN_BASELINE.md)** — Auto-synced and sanitized Software Requirements & Domain Architecture baseline.
-* **[`docs/OPERATIONS_AND_TROUBLESHOOTING.md`](docs/OPERATIONS_AND_TROUBLESHOOTING.md)** — Auto-synced production guardrails, LGTM observability runbook, and CI/CD troubleshooting guide.
+Whenever I commit changes in my main `hitlist` repo, a Git hook automatically sanitizes and syncs the latest stats and Architecture Decision Records (ADRs) here.
 
-### Auto-Synced ADR & Post-Mortem Index
+<!-- AUTO-SYNC:METRICS:START -->
+| Metric | Current Count | Notes |
+| :--- | :--- | :--- |
+| **Last Synced Commit** | `3a2129f` (`2026-09-01`) | Auto-synced via Git hook from main `hitlist` repo |
+| **Backend Java Classes** | `118` | Spring Boot 3 (`auth`, `leads`, `outreach`, `fulfillment`, `integrations`) |
+| **Zero-Bytecode Test & Fake Classes** | `33` | Pure Java in-memory `JpaRepository` fakes + Testcontainers |
+| **Frontend React Components** | `28` | React 18 + TanStack Table v8 |
+| **Architecture Decision Records** | `8` | Synced in [`docs/adr/`](docs/adr/README.md) |
+<!-- AUTO-SYNC:METRICS:END -->
+
+### Synced ADRs & Post-Mortems
 <!-- AUTO-SYNC:ADR-INDEX:START -->
-| ADR ID | Decision / Post-Mortem Title | Type | Artifact Link |
-| :--- | :--- | :--- | :--- |
-| **ADR-001** | ADR 001: Data Table Flickering and Standardization | Architecture Decision Record | [`docs/adr/ADR-001-DataTable-Flickering-Resolution.md`](docs/adr/ADR-001-DataTable-Flickering-Resolution.md) |
-| **ADR-002** | ADR 002: Search Campaign Permutations & Free-Tier Deep Exhaustion | Architecture Decision Record | [`docs/adr/ADR-002-Search-Campaign-Permutations.md`](docs/adr/ADR-002-Search-Campaign-Permutations.md) |
-| **ADR-003** | ADR 003: Zero-Bytecode Test Architecture & Testcontainers Integration | Architecture Decision Record | [`docs/adr/ADR-003-Zero-Bytecode-Architecture-and-Testcontainers.md`](docs/adr/ADR-003-Zero-Bytecode-Architecture-and-Testcontainers.md) |
-| **ADR-004** | ADR 004: Automated Architecture Showcase & 4-Layer Cross-Repository Synchronization | Architecture Decision Record | [`docs/adr/ADR-004-Automated-Showcase-Portfolio-Synchronization.md`](docs/adr/ADR-004-Automated-Showcase-Portfolio-Synchronization.md) |
-| **ADR-005** | Implementation Document: Dynamic Lead Generation Configuration & Architecture | Implementation & Post-Mortem Record | [`docs/adr/ADR-005-dynamic-config-architecture.md`](docs/adr/ADR-005-dynamic-config-architecture.md) |
-| **ADR-006** | Implementation Document: Upgrade to New Google Places API | Implementation & Post-Mortem Record | [`docs/adr/ADR-006-google-places-new-api-upgrade.md`](docs/adr/ADR-006-google-places-new-api-upgrade.md) |
-| **ADR-007** | Post-Mortem: Google Places API Silent Failure & DTO Mapping | Implementation & Post-Mortem Record | [`docs/adr/ADR-007-google-places-silent-failure.md`](docs/adr/ADR-007-google-places-silent-failure.md) |
-| **ADR-008** | Lead Generation Pipeline Guardrails | Implementation & Post-Mortem Record | [`docs/adr/ADR-008-lead-generation-guardrails.md`](docs/adr/ADR-008-lead-generation-guardrails.md) |
+| ID | Decision / Post-Mortem | Type |
+| :--- | :--- | :--- |
+| **ADR-001** | [ADR 001: Data Table Flickering and Standardization](docs/adr/ADR-001-DataTable-Flickering-Resolution.md) | ADR |
+| **ADR-002** | [ADR 002: Search Campaign Permutations & Free-Tier Deep Exhaustion](docs/adr/ADR-002-Search-Campaign-Permutations.md) | ADR |
+| **ADR-003** | [ADR 003: Zero-Bytecode Test Architecture & Testcontainers Integration](docs/adr/ADR-003-Zero-Bytecode-Architecture-and-Testcontainers.md) | ADR |
+| **ADR-004** | [ADR 004: Automated Architecture Showcase & 4-Layer Cross-Repository Synchronization](docs/adr/ADR-004-Automated-Showcase-Portfolio-Synchronization.md) | ADR |
+| **ADR-005** | [Implementation Document: Dynamic Lead Generation Configuration & Architecture](docs/adr/ADR-005-dynamic-config-architecture.md) | Post-Mortem / Spec |
+| **ADR-006** | [Implementation Document: Upgrade to New Google Places API](docs/adr/ADR-006-google-places-new-api-upgrade.md) | Post-Mortem / Spec |
+| **ADR-007** | [Post-Mortem: Google Places API Silent Failure & DTO Mapping](docs/adr/ADR-007-google-places-silent-failure.md) | Post-Mortem / Spec |
+| **ADR-008** | [Lead Generation Pipeline Guardrails](docs/adr/ADR-008-lead-generation-guardrails.md) | Post-Mortem / Spec |
 <!-- AUTO-SYNC:ADR-INDEX:END -->
 
 
