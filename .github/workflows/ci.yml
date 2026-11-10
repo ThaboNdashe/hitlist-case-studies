@@ -15,7 +15,7 @@ jobs:
 
       - name: Secret & Credential Leak Audit (Fail-Closed)
         run: |
-          if grep -RInE "AIzaSy[A-Za-z0-9_-]{10,}|sk-ant-[A-Za-z0-9_-]{10,}|BEGIN PRIVATE KEY|password:[[:space:]]*12345" README.md docs/ code-proofs/; then
+          if grep -RInE "AIzaSy[A-Za-z0-9_-]{10,}|sk-ant-[A-Za-z0-9_-]{10,}|BEGIN PRIVATE KEY|password:[[:space:]]*12345" README.md case-studies/ code-proofs/; then
             echo "::error::Unredacted credential pattern detected in repository!"
             exit 1
           fi

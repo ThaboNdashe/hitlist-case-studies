@@ -60,3 +60,4 @@ Whenever I commit to my main `hitlist` repo, a Git hook automatically sanitizes 
 | **Frontend React Components** | `28` | React 18 + TanStack Table v8 |
 <!-- AUTO-SYNC:METRICS:END -->
 
+
