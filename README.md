@@ -1,4 +1,4 @@
-﻿# Building Hitlist: 5 Production Bugs, Design Trade-Offs, and How I Solved Them
+# Building Hitlist: 5 Production Bugs, Design Trade-Offs, and How I Solved Them
 
 Hi, I'm **Thabo Ndashe**. I built **Hitlist**—a full-stack Java/Spring Boot and React platform that discovers local businesses without websites (like plumbers, dental clinics, and contractors) so digital agencies can pitch them.
 
@@ -54,10 +54,11 @@ Whenever I commit to my main `hitlist` repo, a Git hook automatically sanitizes 
 <!-- AUTO-SYNC:METRICS:START -->
 | Metric | Count | Details |
 | :--- | :--- | :--- |
-| **Last Synced** | `2026-11-10` (`hitlist@3a2129f`) | Auto-synced via Git hook from main `hitlist` repo |
+| **Last Synced** | `2026-11-11` (`hitlist@3a2129f`) | Auto-synced via Git hook from main `hitlist` repo |
 | **Backend Java Classes** | `118` | Spring Boot 3 (`auth`, `leads`, `outreach`, `fulfillment`, `integrations`) |
 | **Zero-Bytecode Test & Fake Classes** | `33` | Pure-Java in-memory `JpaRepository` fakes + Testcontainers PostgreSQL 16 |
 | **Frontend React Components** | `28` | React 18 + TanStack Table v8 |
 <!-- AUTO-SYNC:METRICS:END -->
+
 
 
